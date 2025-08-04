@@ -15,6 +15,7 @@ import type {
 export class WorkflowService {
   private spotifyService: SpotifyService;
   private scrapingService: ScrapingService;
+  private forceRun = false;
   private stats: ProcessingStats = {
     processed: 0,
     successful: 0,
@@ -26,6 +27,66 @@ export class WorkflowService {
   constructor() {
     this.spotifyService = new SpotifyService();
     this.scrapingService = new ScrapingService();
+    this.setupKeyboardInput();
+  }
+
+  private setupKeyboardInput(): void {
+    // Only set up keyboard input in TTY environments
+    if (!process.stdin.isTTY) {
+      return;
+    }
+
+    // Enable raw mode to capture individual key presses
+    process.stdin.setRawMode(true);
+    process.stdin.setEncoding('utf8');
+    process.stdin.resume();
+
+    // Handle raw keyboard input
+    process.stdin.on('data', (chunk: Buffer | string) => {
+      const key = chunk.toString();
+      
+      // Debug: log all key presses
+      console.log(`\nDEBUG: Key pressed: ${JSON.stringify(key)} (length: ${key.length})`);
+      for (let i = 0; i < key.length; i++) {
+        console.log(`  Char ${i}: ${key.charCodeAt(i)} (${key.charAt(i)})`);
+      }
+      
+      // Up arrow key sequence: ESC[A (27,91,65)
+      if (key === '\x1b[A' || key === '\u001b[A' || 
+          (key.length >= 3 && key.charCodeAt(0) === 27 && key.charCodeAt(1) === 91 && key.charCodeAt(2) === 65)) {
+        console.log('🚀 Up arrow detected - triggering immediate scrape!');
+        this.forceRun = true;
+      }
+      // Down arrow for testing: ESC[B (27,91,66)  
+      else if (key === '\x1b[B' || key === '\u001b[B' || 
+               (key.length >= 3 && key.charCodeAt(0) === 27 && key.charCodeAt(1) === 91 && key.charCodeAt(2) === 66)) {
+        console.log('🚀 Down arrow detected - triggering immediate scrape!');
+        this.forceRun = true;
+      }
+      // Enter key as fallback
+      else if (key === '\r' || key === '\n') {
+        console.log('⚡ Enter pressed - triggering immediate scrape!');
+        this.forceRun = true;
+      }
+      // Spacebar as another fallback
+      else if (key === ' ') {
+        console.log('⚡ Spacebar pressed - triggering immediate scrape!');
+        this.forceRun = true;
+      }
+      // Ctrl+C
+      else if (key.charCodeAt(0) === 3) {
+        console.log('\n👋 Shutting down...');
+        this.cleanup();
+        process.exit(0);
+      }
+    });
+  }
+
+  private cleanup(): void {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
   }
 
   async run(options: CLIOptions): Promise<void> {
@@ -35,6 +96,7 @@ export class WorkflowService {
       if (options.once) {
         await this.runOnce(options);
       } else {
+        Logger.info('💡 Tip: Press ↑ arrow key or Enter during waiting to skip and run immediately');
         await this.runContinuous(options);
       }
     } catch (error) {
@@ -45,6 +107,8 @@ export class WorkflowService {
         Logger.error('Unexpected workflow error', { error });
         throw error;
       }
+    } finally {
+      this.cleanup();
     }
   }
 
@@ -88,6 +152,8 @@ export class WorkflowService {
           Logger.error('Error in continuous run, retrying after interval', { error });
         }
         
+        // Reset consecutive duplicates when going back to waiting mode
+        this.stats.consecutiveDuplicates = 0;
         await this.countdown(config.wwoz.scrapeInterval);
       }
     }
@@ -235,15 +301,23 @@ export class WorkflowService {
 
   private async countdown(seconds: number): Promise<void> {
     let remaining = seconds;
+    this.forceRun = false; // Reset the force run flag
     
-    while (remaining > 0) {
+    console.log(`⏳ Waiting ${seconds} seconds... (Press ↑ arrow key or Enter to skip wait and run immediately)`);
+    
+    while (remaining > 0 && !this.forceRun) {
       if (remaining % 50 === 0) {
         const timestamp = new Date().toLocaleString();
-        console.log(`Next refresh in ${remaining} seconds [${timestamp}]`);
+        console.log(`Next refresh in ${remaining} seconds [${timestamp}] (Press ↑ or Enter to skip)`);
       }
       
       await new Promise(resolve => setTimeout(resolve, 1000));
       remaining--;
+    }
+    
+    if (this.forceRun) {
+      console.log('⚡ Skipping wait - running immediately!');
+      this.forceRun = false; // Reset flag
     }
   }
 
