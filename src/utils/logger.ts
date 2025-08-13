@@ -10,7 +10,7 @@ export class Logger {
         level: config.logging.level,
         format: winston.format.combine(
           winston.format.timestamp({
-            format: 'YYYY-MM-DD HH:mm:ss'
+            format: 'YYYY-MM-DD HH:mm:ss',
           }),
           winston.format.errors({ stack: true }),
           winston.format.printf(({ timestamp, level, message, ...meta }) => {
@@ -26,12 +26,12 @@ export class Logger {
                 const metaStr = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
                 return `${timestamp} [${level}] ${message}${metaStr}`;
               })
-            )
-          })
-        ]
+            ),
+          }),
+        ],
       });
     }
-    
+
     return Logger.instance;
   }
 

@@ -48,7 +48,7 @@ This is a modern TypeScript application that scrapes WWOZ radio playlists and au
 - **Centralized Error Handling**: Custom error types and global error handlers (`src/utils/errorHandler.ts`, `src/types/errors.ts`)
 - **Advanced Song Matching**: Multi-strategy fuzzy matching with confidence scoring (`src/utils/matching.ts`)
 - **Rate Limiting**: Bottleneck-based rate limiting for both Spotify API and scraping operations
-- **Graceful Shutdown**: Proper cleanup on exit signals with keyboard input handling
+- **Graceful Shutdown**: Proper cleanup on exit signals with keyboard input handling (↓ arrow to stop, Ctrl+C for immediate exit)
 
 ### CLI Architecture
 
@@ -57,7 +57,10 @@ The CLI (`src/cli/commands.ts`) supports multiple operation modes:
 - One-time execution mode
 - Dry-run mode for testing without Spotify changes
 - Configuration validation and connection testing
-- Keyboard shortcuts for immediate scraping during wait periods
+- Keyboard shortcuts during continuous monitoring:
+  - ↑ arrow key or Enter: Skip wait and run immediately
+  - ↓ arrow key: Gracefully stop the tracker
+  - Ctrl+C: Force immediate exit
 
 ### Configuration System
 

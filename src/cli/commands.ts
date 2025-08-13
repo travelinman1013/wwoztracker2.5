@@ -51,17 +51,17 @@ export function createCLI(): Command {
   // Default action when no command is specified
   program.action(async () => {
     const opts = program.opts();
-    
+
     if (opts.configCheck) {
       validateConfiguration();
       return;
     }
-    
+
     if (opts.testConnection) {
       await testConnections();
       return;
     }
-    
+
     await runTracker(opts);
   });
 
@@ -70,7 +70,7 @@ export function createCLI(): Command {
 
 export function parseOptions(program: Command): CLIOptions {
   const opts = program.opts();
-  
+
   return {
     dryRun: opts.dryRun || config.dryRun,
     playlistName: opts.playlistName,
@@ -82,32 +82,32 @@ export function parseOptions(program: Command): CLIOptions {
 
 function validateConfiguration(): void {
   console.log('🔍 Validating configuration...\n');
-  
+
   const missingEnvVars = validateEnvironment();
-  
+
   if (missingEnvVars.length > 0) {
     console.error('❌ Missing required environment variables:');
-    missingEnvVars.forEach(envVar => console.error(`   - ${envVar}`));
+    missingEnvVars.forEach((envVar) => console.error(`   - ${envVar}`));
     console.error('\nPlease check your .env file or environment setup.');
     process.exit(1);
   }
-  
+
   console.log('✅ All required environment variables are present');
   console.log('✅ Configuration validation passed\n');
-  
+
   printConfigSummary();
 }
 
 async function testConnections(): Promise<void> {
   console.log('🔍 Testing connections...\n');
-  
+
   // We'll implement these tests in the services
   console.log('🌐 Testing WWOZ connection...');
   // const wwozOk = await testWWOZConnection();
-  
+
   console.log('🎵 Testing Spotify connection...');
   // const spotifyOk = await testSpotifyConnection();
-  
+
   console.log('\n✅ Connection tests completed');
 }
 
@@ -115,7 +115,7 @@ async function runTracker(options: CLIOptions): Promise<void> {
   const { WorkflowService } = await import('../services/WorkflowService.js');
   const { Logger } = await import('../utils/logger.js');
   const { config } = await import('../config/index.js');
-  
+
   // Set verbose logging if requested
   if (options.verbose) {
     Logger.setLevel('debug');

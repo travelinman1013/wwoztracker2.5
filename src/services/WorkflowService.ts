@@ -5,17 +5,13 @@ import { Logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
 import { ConsecutiveDuplicatesError, AppError } from '../types/errors.js';
 import { SongMatcher, MatchValidator } from '../utils/matching.js';
-import type { 
-  ScrapedSong, 
-  TrackMatch, 
-  ProcessingStats, 
-  CLIOptions 
-} from '../types/index.js';
+import type { ScrapedSong, TrackMatch, ProcessingStats, CLIOptions } from '../types/index.js';
 
 export class WorkflowService {
   private spotifyService: SpotifyService;
   private scrapingService: ScrapingService;
   private forceRun = false;
+  private shouldStop = false;
   private stats: ProcessingStats = {
     processed: 0,
     successful: 0,
@@ -44,24 +40,36 @@ export class WorkflowService {
     // Handle raw keyboard input
     process.stdin.on('data', (chunk: Buffer | string) => {
       const key = chunk.toString();
-      
+
       // Debug: log all key presses
       console.log(`\nDEBUG: Key pressed: ${JSON.stringify(key)} (length: ${key.length})`);
       for (let i = 0; i < key.length; i++) {
         console.log(`  Char ${i}: ${key.charCodeAt(i)} (${key.charAt(i)})`);
       }
-      
+
       // Up arrow key sequence: ESC[A (27,91,65)
-      if (key === '\x1b[A' || key === '\u001b[A' || 
-          (key.length >= 3 && key.charCodeAt(0) === 27 && key.charCodeAt(1) === 91 && key.charCodeAt(2) === 65)) {
+      if (
+        key === '\x1b[A' ||
+        key === '\u001b[A' ||
+        (key.length >= 3 &&
+          key.charCodeAt(0) === 27 &&
+          key.charCodeAt(1) === 91 &&
+          key.charCodeAt(2) === 65)
+      ) {
         console.log('🚀 Up arrow detected - triggering immediate scrape!');
         this.forceRun = true;
       }
-      // Down arrow for testing: ESC[B (27,91,66)  
-      else if (key === '\x1b[B' || key === '\u001b[B' || 
-               (key.length >= 3 && key.charCodeAt(0) === 27 && key.charCodeAt(1) === 91 && key.charCodeAt(2) === 66)) {
-        console.log('🚀 Down arrow detected - triggering immediate scrape!');
-        this.forceRun = true;
+      // Down arrow key sequence: ESC[B (27,91,66) - Stop tracker
+      else if (
+        key === '\x1b[B' ||
+        key === '\u001b[B' ||
+        (key.length >= 3 &&
+          key.charCodeAt(0) === 27 &&
+          key.charCodeAt(1) === 91 &&
+          key.charCodeAt(2) === 66)
+      ) {
+        console.log('🛑 Down arrow detected - stopping tracker...');
+        this.shouldStop = true;
       }
       // Enter key as fallback
       else if (key === '\r' || key === '\n') {
@@ -96,7 +104,9 @@ export class WorkflowService {
       if (options.once) {
         await this.runOnce(options);
       } else {
-        Logger.info('💡 Tip: Press ↑ arrow key or Enter during waiting to skip and run immediately');
+        Logger.info(
+          '💡 Tip: Press ↑ arrow key or Enter to skip wait and run immediately, ↓ arrow key to stop tracker'
+        );
         await this.runContinuous(options);
       }
     } catch (error) {
@@ -113,8 +123,9 @@ export class WorkflowService {
   }
 
   private async runOnce(options: CLIOptions): Promise<void> {
-    Logger.info('Running single execution cycle');
-    
+    const timestamp = new Date().toLocaleString();
+    Logger.info(`🎯 Running execution cycle [${timestamp}]`);
+
     const songs = await this.scrapeSongs(options);
     if (!songs.length) {
       Logger.warn('No songs scraped, ending execution');
@@ -129,32 +140,49 @@ export class WorkflowService {
   }
 
   private async runContinuous(options: CLIOptions): Promise<void> {
-    Logger.info('Starting continuous monitoring mode', { 
-      interval: config.wwoz.scrapeInterval 
+    Logger.info('Starting continuous monitoring mode', {
+      interval: config.wwoz.scrapeInterval,
     });
 
     const intervalMs = config.wwoz.scrapeInterval * 1000;
-    
-    while (true) {
+
+    while (!this.shouldStop) {
       try {
         await this.runOnce(options);
-        
+
+        // Check if stop was requested during processing
+        if (this.shouldStop) {
+          Logger.info('🛑 Stop requested - exiting continuous mode');
+          break;
+        }
+
         // Reset consecutive duplicates after successful run
         this.stats.consecutiveDuplicates = 0;
-        
+
         Logger.info(`Next run in ${config.wwoz.scrapeInterval} seconds`);
         await this.countdown(config.wwoz.scrapeInterval);
-        
+
+        // Check again after countdown in case stop was requested during wait
+        if (this.shouldStop) {
+          Logger.info('🛑 Stop requested - exiting continuous mode');
+          break;
+        }
       } catch (error) {
         if (error instanceof ConsecutiveDuplicatesError) {
           Logger.info('Playlist appears up to date, continuing with normal interval');
         } else {
           Logger.error('Error in continuous run, retrying after interval', { error });
         }
-        
+
         // Reset consecutive duplicates when going back to waiting mode
         this.stats.consecutiveDuplicates = 0;
         await this.countdown(config.wwoz.scrapeInterval);
+
+        // Check if stop was requested during error recovery wait
+        if (this.shouldStop) {
+          Logger.info('🛑 Stop requested - exiting continuous mode');
+          break;
+        }
       }
     }
   }
@@ -163,22 +191,22 @@ export class WorkflowService {
     try {
       // Get the playlist ID that will be used for this batch
       let playlistId: string | null = null;
-      
+
       if (config.staticPlaylistId) {
         playlistId = config.staticPlaylistId;
       } else {
         // For dynamic playlists, use today's date
         const dateStr = dayjs().format('YYYY-MM-DD');
         const playlistName = options.playlistName || `WWOZ Radio Discoveries [${dateStr}]`;
-        
+
         const playlist = await this.spotifyService.getOrCreatePlaylist(playlistName, {
           description: 'Songs discovered from WWOZ radio playlist',
           public: false,
         });
-        
+
         playlistId = playlist?.id || null;
       }
-      
+
       if (playlistId) {
         await this.spotifyService.loadPlaylistCache(playlistId);
       }
@@ -189,8 +217,10 @@ export class WorkflowService {
 
   private async scrapeSongs(options: CLIOptions): Promise<ScrapedSong[]> {
     try {
-      Logger.info('Scraping all songs from playlist');
-      return await this.scrapingService.scrapeAllSongs();
+      Logger.info('🔄 Starting fresh scrape of WWOZ playlist...');
+      const songs = await this.scrapingService.scrapeAllSongs();
+      Logger.info(`📋 Retrieved ${songs.length} songs from fresh scrape`);
+      return songs;
     } catch (error) {
       Logger.error('Failed to scrape songs', { error });
       return [];
@@ -208,16 +238,16 @@ export class WorkflowService {
           Logger.info('Stopping batch processing due to consecutive duplicates');
           throw error;
         }
-        
-        Logger.warn('Failed to process song, continuing with next', { 
+
+        Logger.warn('Failed to process song, continuing with next', {
           song: `${song.artist} - ${song.title}`,
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
         });
-        
+
         this.stats.failed++;
         this.stats.consecutiveDuplicates = 0; // Reset on non-duplicate failure
       }
-      
+
       this.stats.processed++;
     }
   }
@@ -244,28 +274,32 @@ export class WorkflowService {
     if (!MatchValidator.isValidMatch(song, match.track, match.confidence)) {
       Logger.warn(`Match quality too low for: ${song.artist} - ${song.title}`, {
         confidence: match.confidence,
-        spotifyTrack: `${match.track.artists[0].name} - ${match.track.name}`
+        spotifyTrack: `${match.track.artists[0].name} - ${match.track.name}`,
       });
       this.stats.failed++;
       this.stats.consecutiveDuplicates = 0;
       return;
     }
 
-    Logger.info(`🎯 Found match: ${match.track.artists.map(a => a.name).join(', ')} - ${match.track.name} (${match.confidence.toFixed(1)}% confidence)`);
+    Logger.info(
+      `🎯 Found match: ${match.track.artists.map((a) => a.name).join(', ')} - ${match.track.name} (${match.confidence.toFixed(1)}% confidence)`
+    );
 
     // Check for duplicates
     const isDuplicate = await this.spotifyService.isDuplicate(playlistId, match.track.id);
-    
+
     if (isDuplicate) {
       this.stats.duplicates++;
       this.stats.consecutiveDuplicates++;
-      
-      Logger.info(`⏭️  Track already in playlist (${this.stats.consecutiveDuplicates}/5 consecutive duplicates)`);
-      
+
+      Logger.info(
+        `⏭️  Track already in playlist (${this.stats.consecutiveDuplicates}/5 consecutive duplicates)`
+      );
+
       if (this.stats.consecutiveDuplicates >= 5) {
         throw new ConsecutiveDuplicatesError(5);
       }
-      
+
       return;
     }
 
@@ -289,7 +323,7 @@ export class WorkflowService {
 
     const dateStr = dayjs(song.scrapedAt).format('YYYY-MM-DD');
     const playlistName = options.playlistName || `WWOZ Radio Discoveries [${dateStr}]`;
-    
+
     Logger.debug(`Creating/finding playlist: ${playlistName}`);
     const playlist = await this.spotifyService.getOrCreatePlaylist(playlistName, {
       description: 'Songs discovered from WWOZ radio playlist',
@@ -302,19 +336,23 @@ export class WorkflowService {
   private async countdown(seconds: number): Promise<void> {
     let remaining = seconds;
     this.forceRun = false; // Reset the force run flag
-    
-    console.log(`⏳ Waiting ${seconds} seconds... (Press ↑ arrow key or Enter to skip wait and run immediately)`);
-    
-    while (remaining > 0 && !this.forceRun) {
+
+    console.log(
+      `⏳ Waiting ${seconds} seconds... (Press ↑ arrow key or Enter to skip wait, ↓ arrow key to stop tracker)`
+    );
+
+    while (remaining > 0 && !this.forceRun && !this.shouldStop) {
       if (remaining % 50 === 0) {
         const timestamp = new Date().toLocaleString();
-        console.log(`Next refresh in ${remaining} seconds [${timestamp}] (Press ↑ or Enter to skip)`);
+        console.log(
+          `Next refresh in ${remaining} seconds [${timestamp}] (Press ↑/Enter to skip, ↓ to stop)`
+        );
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       remaining--;
     }
-    
+
     if (this.forceRun) {
       console.log('⚡ Skipping wait - running immediately!');
       this.forceRun = false; // Reset flag
@@ -327,9 +365,10 @@ export class WorkflowService {
       successful: this.stats.successful,
       failed: this.stats.failed,
       duplicates: this.stats.duplicates,
-      successRate: this.stats.processed > 0 
-        ? `${((this.stats.successful / this.stats.processed) * 100).toFixed(1)}%`
-        : '0%'
+      successRate:
+        this.stats.processed > 0
+          ? `${((this.stats.successful / this.stats.processed) * 100).toFixed(1)}%`
+          : '0%',
     });
   }
 

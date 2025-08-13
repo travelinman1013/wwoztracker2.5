@@ -32,7 +32,8 @@ function createConfig(): ValidatedAppConfig {
       level: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
     },
     dryRun: process.env.DRY_RUN === 'true',
-    chromePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    chromePath:
+      process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     staticPlaylistId: process.env.SPOTIFY_STATIC_PLAYLIST_ID,
   };
 

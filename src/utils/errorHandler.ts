@@ -2,7 +2,6 @@ import { Logger } from './logger.js';
 import { AppError, ConfigurationError } from '../types/errors.js';
 
 export class ErrorHandler {
-  
   static handle(error: unknown): void {
     if (error instanceof AppError) {
       Logger.error(error.message, {
@@ -10,9 +9,9 @@ export class ErrorHandler {
         statusCode: error.statusCode,
         isOperational: error.isOperational,
         context: error.context,
-        stack: error.stack
+        stack: error.stack,
       });
-      
+
       // Exit for non-operational errors
       if (!error.isOperational) {
         process.exit(1);
@@ -20,7 +19,7 @@ export class ErrorHandler {
     } else if (error instanceof Error) {
       Logger.error(`Unexpected error: ${error.message}`, {
         name: error.name,
-        stack: error.stack
+        stack: error.stack,
       });
       process.exit(1);
     } else {
@@ -69,7 +68,7 @@ export class ErrorHandler {
       'SPOTIFY_USER_ID',
     ];
 
-    const missing = requiredEnvVars.filter(envVar => !process.env[envVar]);
+    const missing = requiredEnvVars.filter((envVar) => !process.env[envVar]);
 
     if (missing.length > 0) {
       throw new ConfigurationError(
