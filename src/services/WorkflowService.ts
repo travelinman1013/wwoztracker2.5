@@ -303,7 +303,7 @@ export class WorkflowService {
           `⏭️  Track already in playlist (${this.stats.consecutiveDuplicates}/5 consecutive duplicates)`
         );
 
-        await this.archiveDuplicate(song, match);
+        // Skip archiving duplicates - they don't need to be stored
 
         if (this.stats.consecutiveDuplicates >= 5) {
           throw new ConsecutiveDuplicatesError(5);
@@ -342,16 +342,6 @@ export class WorkflowService {
     await this.archiveService.archiveSong(entry);
   }
 
-  private async archiveDuplicate(song: ScrapedSong, match: TrackMatch): Promise<void> {
-    const entry: ArchiveEntry = {
-      song,
-      match,
-      isDuplicate: true,
-      status: 'duplicate',
-      archivedAt: new Date().toISOString(),
-    };
-    await this.archiveService.archiveSong(entry);
-  }
 
   private async archiveLowConfidence(song: ScrapedSong, match: TrackMatch): Promise<void> {
     const entry: ArchiveEntry = {
