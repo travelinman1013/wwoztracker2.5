@@ -21,6 +21,11 @@ export interface LoggingConfig {
   level: 'error' | 'warn' | 'info' | 'debug';
 }
 
+export interface ArchiveConfig {
+  enabled: boolean;
+  basePath: string;
+}
+
 export interface AppConfig {
   spotify: SpotifyConfig;
   wwoz: WWOZConfig;
@@ -29,6 +34,7 @@ export interface AppConfig {
     wwoz: RateLimitConfig;
   };
   logging: LoggingConfig;
+  archive: ArchiveConfig;
   dryRun: boolean;
   chromePath: string;
   staticPlaylistId?: string;

@@ -31,6 +31,10 @@ function createConfig(): ValidatedAppConfig {
     logging: {
       level: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
     },
+    archive: {
+      enabled: process.env.ARCHIVE_ENABLED !== 'false',
+      basePath: process.env.ARCHIVE_PATH || '/Users/maxwell/LETSGO/MaxVault/01_Projects/wwoztracker',
+    },
     dryRun: process.env.DRY_RUN === 'true',
     chromePath:
       process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -74,5 +78,7 @@ export function printConfigSummary(): void {
   console.log(`- Scrape Interval: ${config.wwoz.scrapeInterval}s`);
   console.log(`- Log Level: ${config.logging.level}`);
   console.log(`- Static Playlist: ${config.staticPlaylistId ? 'YES' : 'NO'}`);
+  console.log(`- Archive Enabled: ${config.archive.enabled ? 'YES' : 'NO'}`);
+  console.log(`- Archive Path: ${config.archive.basePath}`);
   console.log(`- WWOZ URL: ${config.wwoz.playlistUrl}`);
 }

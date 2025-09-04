@@ -23,6 +23,11 @@ export const LoggingConfigSchema = z.object({
   level: z.enum(['error', 'warn', 'info', 'debug']),
 });
 
+export const ArchiveConfigSchema = z.object({
+  enabled: z.boolean(),
+  basePath: z.string().min(1, 'Archive base path is required'),
+});
+
 export const AppConfigSchema = z.object({
   spotify: SpotifyConfigSchema,
   wwoz: WWOZConfigSchema,
@@ -31,6 +36,7 @@ export const AppConfigSchema = z.object({
     wwoz: RateLimitConfigSchema,
   }),
   logging: LoggingConfigSchema,
+  archive: ArchiveConfigSchema,
   dryRun: z.boolean(),
   chromePath: z.string().min(1, 'Chrome path is required'),
   staticPlaylistId: z.string().optional(),
