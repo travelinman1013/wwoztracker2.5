@@ -33,7 +33,8 @@ function createConfig(): ValidatedAppConfig {
     },
     archive: {
       enabled: process.env.ARCHIVE_ENABLED !== 'false',
-      basePath: process.env.ARCHIVE_PATH || '/Users/maxwell/LETSGO/MaxVault/01_Projects/wwoztracker',
+      basePath:
+        process.env.ARCHIVE_PATH || '/Users/maxwell/LETSGO/MaxVault/01_Projects/wwoztracker',
     },
     dryRun: process.env.DRY_RUN === 'true',
     chromePath:

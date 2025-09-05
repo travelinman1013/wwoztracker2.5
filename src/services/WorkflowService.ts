@@ -258,60 +258,60 @@ export class WorkflowService {
   private async processSingleSong(song: ScrapedSong, options: CLIOptions): Promise<void> {
     Logger.info(`🎵 Processing: ${song.artist} - ${song.title}`);
 
-    try {
-      // Get or create playlist
-      const playlistId = await this.getPlaylistId(song, options);
-      if (!playlistId) {
-        await this.archiveFailure(song, 'Could not get or create playlist');
-        throw new Error('Could not get or create playlist');
-      }
+    // Get or create playlist
+    const playlistId = await this.getPlaylistId(song, options);
+    if (!playlistId) {
+      await this.archiveFailure(song, 'Could not get or create playlist');
+      throw new Error('Could not get or create playlist');
+    }
 
-      // Search for track on Spotify
-      const match = await this.spotifyService.searchTrack(song);
-      if (!match) {
-        Logger.warn(`No confident match found for: ${song.artist} - ${song.title}`);
-        await this.archiveFailure(song, 'No confident match found');
-        this.stats.failed++;
-        this.stats.consecutiveDuplicates = 0;
-        return;
-      }
+    // Search for track on Spotify
+    const match = await this.spotifyService.searchTrack(song);
+    if (!match) {
+      Logger.warn(`No confident match found for: ${song.artist} - ${song.title}`);
+      await this.archiveFailure(song, 'No confident match found');
+      this.stats.failed++;
+      this.stats.consecutiveDuplicates = 0;
+      return;
+    }
 
-      // Validate match quality
-      if (!MatchValidator.isValidMatch(song, match.track, match.confidence)) {
-        Logger.warn(`Match quality too low for: ${song.artist} - ${song.title}`, {
-          confidence: match.confidence,
-          spotifyTrack: `${match.track.artists[0].name} - ${match.track.name}`,
-        });
-        await this.archiveLowConfidence(song, match);
-        this.stats.failed++;
-        this.stats.consecutiveDuplicates = 0;
-        return;
-      }
+    // Validate match quality
+    if (!MatchValidator.isValidMatch(song, match.track, match.confidence)) {
+      Logger.warn(`Match quality too low for: ${song.artist} - ${song.title}`, {
+        confidence: match.confidence,
+        spotifyTrack: `${match.track.artists[0].name} - ${match.track.name}`,
+      });
+      await this.archiveLowConfidence(song, match);
+      this.stats.failed++;
+      this.stats.consecutiveDuplicates = 0;
+      return;
+    }
+
+    Logger.info(
+      `🎯 Found match: ${match.track.artists.map((a) => a.name).join(', ')} - ${match.track.name} (${match.confidence.toFixed(1)}% confidence)`
+    );
+
+    // Check for duplicates - handle this outside try-catch to avoid archiving duplicates
+    const isDuplicate = await this.spotifyService.isDuplicate(playlistId, match.track.id);
+
+    if (isDuplicate) {
+      this.stats.duplicates++;
+      this.stats.consecutiveDuplicates++;
 
       Logger.info(
-        `🎯 Found match: ${match.track.artists.map((a) => a.name).join(', ')} - ${match.track.name} (${match.confidence.toFixed(1)}% confidence)`
+        `⏭️  Track already in playlist (${this.stats.consecutiveDuplicates}/5 consecutive duplicates)`
       );
 
-      // Check for duplicates
-      const isDuplicate = await this.spotifyService.isDuplicate(playlistId, match.track.id);
-
-      if (isDuplicate) {
-        this.stats.duplicates++;
-        this.stats.consecutiveDuplicates++;
-
-        Logger.info(
-          `⏭️  Track already in playlist (${this.stats.consecutiveDuplicates}/5 consecutive duplicates)`
-        );
-
-        // Skip archiving duplicates - they don't need to be stored
-
-        if (this.stats.consecutiveDuplicates >= 5) {
-          throw new ConsecutiveDuplicatesError(5);
-        }
-
-        return;
+      // Don't archive duplicates - they're not failures
+      if (this.stats.consecutiveDuplicates >= 5) {
+        throw new ConsecutiveDuplicatesError(5);
       }
 
+      return;
+    }
+
+    // Only use try-catch for actual operations that might fail and need archiving
+    try {
       // Add track to playlist
       if (!config.dryRun) {
         await this.spotifyService.addTrackToPlaylist(playlistId, match.track.uri);
@@ -324,10 +324,8 @@ export class WorkflowService {
       this.stats.successful++;
       this.stats.consecutiveDuplicates = 0; // Reset on successful add
     } catch (error) {
-      // Archive the error if we haven't already
-      if (!(error instanceof ConsecutiveDuplicatesError)) {
-        await this.archiveFailure(song, error instanceof Error ? error.message : 'Unknown error');
-      }
+      // Only actual failures get archived here - duplicates are handled above
+      await this.archiveFailure(song, error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -341,7 +339,6 @@ export class WorkflowService {
     };
     await this.archiveService.archiveSong(entry);
   }
-
 
   private async archiveLowConfidence(song: ScrapedSong, match: TrackMatch): Promise<void> {
     const entry: ArchiveEntry = {

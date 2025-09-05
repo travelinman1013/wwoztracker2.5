@@ -31,7 +31,7 @@ export class ArchiveService {
     try {
       const songDate = dayjs(entry.song.scrapedAt);
       const dateString = songDate.format('YYYY-MM-DD');
-      
+
       // Reset cache if date changed
       if (this.currentDate !== dateString) {
         this.resetDailyCache();
@@ -41,7 +41,7 @@ export class ArchiveService {
 
       // Create unique identifier for duplicate detection
       const uniqueId = this.createUniqueId(entry.song, songDate);
-      
+
       // Skip if already archived today
       if (this.dailyCache.has(uniqueId)) {
         Logger.debug(`Song already archived today: ${entry.song.artist} - ${entry.song.title}`);
@@ -50,7 +50,7 @@ export class ArchiveService {
 
       // Get archive file path
       const archivePath = this.getArchiveFilePath(songDate);
-      
+
       // Ensure directory exists
       await this.ensureDirectoryExists(dirname(archivePath));
 
@@ -85,7 +85,7 @@ export class ArchiveService {
     const year = date.format('YYYY');
     const month = date.format('MM');
     const dateStr = date.format('YYYY-MM-DD');
-    
+
     return join(config.archive.basePath, year, month, `${dateStr}-wwoz-tracks.md`);
   }
 
@@ -100,8 +100,8 @@ export class ArchiveService {
       try {
         return await readFile(filePath, 'utf8');
       } catch (error) {
-        Logger.warn(`Could not read existing archive file: ${filePath}`, { 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        Logger.warn(`Could not read existing archive file: ${filePath}`, {
+          error: error instanceof Error ? error.message : 'Unknown error',
         });
       }
     }
@@ -113,7 +113,7 @@ export class ArchiveService {
   private createFileTemplate(date: dayjs.Dayjs): string {
     const dateStr = date.format('YYYY-MM-DD');
     const dayName = date.format('dddd');
-    
+
     return `---
 title: "WWOZ Tracks - ${dateStr}"
 date: "${dateStr}"
@@ -143,23 +143,23 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
   private formatEntryAsMarkdown(entry: ArchiveEntry): string {
     const timestamp = dayjs(entry.song.scrapedAt).format('HH:mm');
     const { song, match, status, isDuplicate } = entry;
-    
+
     let statusIcon = '';
     let statusText = '';
     let spotifyLink = '';
-    
+
     switch (status) {
       case 'found':
         statusIcon = '✅';
         statusText = `Found on Spotify (${match?.confidence.toFixed(1)}% match)`;
-        spotifyLink = match?.track.external_urls.spotify 
+        spotifyLink = match?.track.external_urls.spotify
           ? `\n- **Spotify**: [Open in Spotify](${match.track.external_urls.spotify})`
           : '';
         break;
       case 'duplicate':
         statusIcon = '🔄';
         statusText = 'Already in playlist';
-        spotifyLink = match?.track.external_urls.spotify 
+        spotifyLink = match?.track.external_urls.spotify
           ? `\n- **Spotify**: [Open in Spotify](${match.track.external_urls.spotify})`
           : '';
         break;
@@ -174,7 +174,7 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
     }
 
     const albumInfo = song.album ? `- **Album**: ${song.album}\n` : '';
-    
+
     return `### [${timestamp}] ${song.artist} - ${song.title}
 
 ${albumInfo}- **Status**: ${statusIcon} ${statusText}${spotifyLink}
@@ -186,27 +186,27 @@ ${albumInfo}- **Status**: ${statusIcon} ${statusText}${spotifyLink}
   private async loadExistingEntries(dateString: string): Promise<void> {
     try {
       const archivePath = this.getArchiveFilePath(dayjs(dateString));
-      
+
       if (!existsSync(archivePath)) {
         return;
       }
 
       const content = await readFile(archivePath, 'utf8');
-      
+
       // Extract existing entries to prevent duplicates
       const entryRegex = /### \[(\d{2}:\d{2})\] (.+) - (.+)/g;
       let match;
-      
+
       while ((match = entryRegex.exec(content)) !== null) {
         const [, time, artist, title] = match;
         const uniqueId = `${artist}-${title}-${dateString}-${time.substring(0, 5)}`;
         this.dailyCache.add(uniqueId);
       }
-      
+
       Logger.debug(`Loaded ${this.dailyCache.size} existing entries for ${dateString}`);
     } catch (error) {
       Logger.warn(`Could not load existing entries for ${dateString}`, {
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   }
