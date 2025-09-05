@@ -77,8 +77,12 @@ export class ArchiveService {
   }
 
   private createUniqueId(song: ScrapedSong, timestamp: dayjs.Dayjs): string {
-    const timeKey = timestamp.format('YYYY-MM-DD-HH:mm');
-    return `${song.artist}-${song.title}-${timeKey}`;
+    // Use only date and hour for deduplication to avoid archiving the same song multiple times
+    // within the same hour (common when processing batches)
+    const timeKey = timestamp.format('YYYY-MM-DD-HH');
+    // Include album in the unique ID to differentiate versions of the same song
+    const albumKey = song.album ? `-${song.album}` : '';
+    return `${song.artist}-${song.title}${albumKey}-${timeKey}`;
   }
 
   private getArchiveFilePath(date: dayjs.Dayjs): string {
@@ -194,13 +198,27 @@ ${albumInfo}- **Status**: ${statusIcon} ${statusText}${spotifyLink}
       const content = await readFile(archivePath, 'utf8');
 
       // Extract existing entries to prevent duplicates
-      const entryRegex = /### \[(\d{2}:\d{2})\] (.+) - (.+)/g;
-      let match;
-
-      while ((match = entryRegex.exec(content)) !== null) {
-        const [, time, artist, title] = match;
-        const uniqueId = `${artist}-${title}-${dateString}-${time.substring(0, 5)}`;
-        this.dailyCache.add(uniqueId);
+      // First extract the entry header, then look for album info on the next line
+      const lines = content.split('\n');
+      
+      for (let i = 0; i < lines.length; i++) {
+        const headerMatch = lines[i].match(/^### \[(\d{2}):(\d{2})\] (.+) - (.+)$/);
+        if (headerMatch) {
+          const [, hour, , artist, title] = headerMatch;
+          
+          // Look for album on the next non-empty line
+          let album = '';
+          if (i + 2 < lines.length) {
+            const albumMatch = lines[i + 2].match(/^- \*\*Album\*\*: (.+)$/);
+            if (albumMatch) {
+              album = `-${albumMatch[1]}`;
+            }
+          }
+          
+          // Create unique ID using date-hour format to match createUniqueId
+          const uniqueId = `${artist}-${title}${album}-${dateString}-${hour}`;
+          this.dailyCache.add(uniqueId);
+        }
       }
 
       Logger.debug(`Loaded ${this.dailyCache.size} existing entries for ${dateString}`);
