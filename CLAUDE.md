@@ -49,6 +49,7 @@ This is a **service-oriented TypeScript application** that orchestrates web scra
 - **WorkflowService** - Main orchestrator that manages the entire processing workflow, handles continuous monitoring, keyboard input, and graceful shutdown
 - **ScrapingService** - Puppeteer-based WWOZ playlist scraping with dynamic content loading
 - **SpotifyService** - Spotify Web API integration with rate limiting, caching, and playlist management
+- **ArchiveService** - Daily markdown file archiving with table format and unique IDs for each scraped song
 
 ### Key Architectural Patterns
 - **Type-Safe Configuration** - Zod schemas validate environment variables at runtime with helpful error messages
@@ -60,7 +61,7 @@ This is a **service-oriented TypeScript application** that orchestrates web scra
 ### Data Flow
 ```
 WWOZ Scraping → Song Processing → Fuzzy Matching → Spotify Search → 
-Duplicate Check → Playlist Updates → Statistics Tracking
+Duplicate Check → Playlist Updates → Daily Archive → Statistics Tracking
 ```
 
 The workflow stops processing when it encounters 5 consecutive duplicate songs, indicating the playlist is up-to-date.
@@ -94,7 +95,8 @@ src/
 ├── services/      # Core business logic
 │   ├── WorkflowService.ts    # Main orchestrator
 │   ├── SpotifyService.ts     # Spotify API client
-│   └── ScrapingService.ts    # WWOZ scraping
+│   ├── ScrapingService.ts    # WWOZ scraping
+│   └── ArchiveService.ts     # Daily markdown archiving
 ├── types/         # TypeScript type definitions
 ├── utils/         # Matching algorithms, logging, errors
 └── index.ts       # Entry point
@@ -125,3 +127,11 @@ The application requires Spotify API credentials and validates them at startup. 
 
 ### Chrome/Puppeteer Configuration
 The scraping service requires Chrome/Chromium. Set `CHROME_PATH` environment variable to the browser executable path. The service uses headless mode with anti-detection measures for reliable scraping.
+
+### Archive System
+The ArchiveService creates daily markdown files with:
+- **Table format** - Organized columns for Time, Artist, Title, Album, Status, Confidence, Spotify link, and Scraped time
+- **Unique IDs** - Each song gets a `HHMMSS-XXX` identifier (e.g., `082607-F46`) for easy reference
+- **Statistics tracking** - Daily counts of found/not found/duplicates automatically updated
+- **Backward compatibility** - Reads both old header-based format and new table format
+- **Configuration** - Set `ARCHIVE_ENABLED=true` and `ARCHIVE_PATH` in environment
