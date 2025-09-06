@@ -26,6 +26,10 @@ export const LoggingConfigSchema = z.object({
 export const ArchiveConfigSchema = z.object({
   enabled: z.boolean(),
   basePath: z.string().min(1, 'Archive base path is required'),
+  deduplicationWindowMinutes: z
+    .number()
+    .min(5, 'Deduplication window must be at least 5 minutes')
+    .default(90),
 });
 
 export const AppConfigSchema = z.object({

@@ -138,7 +138,18 @@ export class WorkflowService {
     // Load playlist cache once at the beginning for performance
     await this.loadPlaylistCache(options);
 
-    await this.processSongs(songs, options);
+    try {
+      await this.processSongs(songs, options);
+      // Update archive summary on successful completion
+      await this.archiveService.updateRunSummary('completed');
+    } catch (error) {
+      if (error instanceof ConsecutiveDuplicatesError) {
+        // Update archive summary when stopped due to consecutive duplicates
+        await this.archiveService.updateRunSummary('stopped', '5 consecutive duplicates');
+        throw error;
+      }
+      throw error;
+    }
     this.logFinalStats();
   }
 

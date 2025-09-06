@@ -1,6 +1,7 @@
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import dayjs from 'dayjs';
 import { Logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
@@ -23,6 +24,13 @@ interface DailyStats {
   duplicates: number;
 }
 
+interface RunStats extends DailyStats {
+  runStartTime?: string;
+  runEndTime?: string;
+  status?: 'running' | 'completed' | 'stopped';
+  stopReason?: string;
+}
+
 export class ArchiveService {
   private dailyCache = new Set<string>();
   private recentEntries = new Map<string, number>(); // Track recent entries with timestamps
@@ -35,10 +43,32 @@ export class ArchiveService {
     lowConfidence: 0,
     duplicates: 0,
   };
-  private readonly RECENT_WINDOW_MINUTES = 10; // Skip archiving if seen in last 10 minutes
+  private currentRunStats: RunStats = {
+    total: 0,
+    found: 0,
+    notFound: 0,
+    lowConfidence: 0,
+    duplicates: 0,
+  };
+  private runHistory: RunStats[] = [];
+  private readonly RECENT_WINDOW_MINUTES = config.archive.deduplicationWindowMinutes; // Skip archiving if seen recently
 
   constructor() {
     this.resetDailyCache();
+    this.loadRecentEntries();
+    this.startNewRun();
+  }
+
+  startNewRun(): void {
+    this.currentRunStats = {
+      total: 0,
+      found: 0,
+      notFound: 0,
+      lowConfidence: 0,
+      duplicates: 0,
+      runStartTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      status: 'running',
+    };
   }
 
   async archiveSong(entry: ArchiveEntry): Promise<void> {
@@ -85,6 +115,9 @@ export class ArchiveService {
       // Clean up old entries from recent cache (older than window)
       this.cleanupRecentEntries();
 
+      // Persist recent entries to file
+      await this.saveRecentEntries();
+
       // Get archive file path
       const archivePath = this.getArchiveFilePath(songDate);
 
@@ -107,6 +140,7 @@ export class ArchiveService {
 
       // Update statistics
       this.updateDailyStats(entry.status);
+      this.updateRunStats(entry.status);
 
       // Write updated content
       await writeFile(archivePath, fileContent, 'utf8');
@@ -201,6 +235,9 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
 - **Date**: ${dateStr}
 - **Day**: ${dayName}
 - **Archive Created**: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}
+- **Last Updated**: ${dayjs().format('YYYY-MM-DD HH:mm:ss')}
+- **Total Runs Today**: 0
+- **Last Run Status**: -
 
 ## Daily Statistics
 
@@ -287,6 +324,24 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
         break;
       case 'duplicate':
         this.dailyStats.duplicates++;
+        break;
+    }
+  }
+
+  private updateRunStats(status: string): void {
+    this.currentRunStats.total++;
+    switch (status) {
+      case 'found':
+        this.currentRunStats.found++;
+        break;
+      case 'not_found':
+        this.currentRunStats.notFound++;
+        break;
+      case 'low_confidence':
+        this.currentRunStats.lowConfidence++;
+        break;
+      case 'duplicate':
+        this.currentRunStats.duplicates++;
         break;
     }
   }
@@ -423,6 +478,54 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
     }
   }
 
+  private getRecentEntriesFilePath(): string {
+    return join(tmpdir(), 'wwoz-tracker-recent-entries.json');
+  }
+
+  private async saveRecentEntries(): Promise<void> {
+    try {
+      const recentEntriesPath = this.getRecentEntriesFilePath();
+      const data = Array.from(this.recentEntries.entries());
+      await writeFile(recentEntriesPath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (error) {
+      Logger.debug('Failed to save recent entries cache', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  private async loadRecentEntries(): Promise<void> {
+    try {
+      const recentEntriesPath = this.getRecentEntriesFilePath();
+      if (!existsSync(recentEntriesPath)) {
+        Logger.debug('No recent entries cache file found, starting fresh');
+        return;
+      }
+
+      const content = await readFile(recentEntriesPath, 'utf8');
+      const data = JSON.parse(content) as Array<[string, number]>;
+
+      // Clear existing entries and load from file
+      this.recentEntries.clear();
+      for (const [key, timestamp] of data) {
+        this.recentEntries.set(key, timestamp);
+      }
+
+      // Clean up old entries after loading
+      this.cleanupRecentEntries();
+
+      // Save cleaned cache back to file
+      await this.saveRecentEntries();
+
+      Logger.debug(`Loaded ${this.recentEntries.size} recent entries from cache`);
+    } catch (error) {
+      Logger.debug('Failed to load recent entries cache, starting fresh', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      this.recentEntries.clear();
+    }
+  }
+
   private async updateStatisticsInFile(filePath: string): Promise<void> {
     try {
       const content = await readFile(filePath, 'utf8');
@@ -438,6 +541,45 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
       }
     } catch (error) {
       Logger.debug('Could not update statistics in file', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  async updateRunSummary(status: 'completed' | 'stopped', stopReason?: string): Promise<void> {
+    if (!config.archive.enabled) {
+      return;
+    }
+
+    try {
+      // Get archive file path for today
+      const archivePath = this.getArchiveFilePath(dayjs());
+
+      if (!existsSync(archivePath)) {
+        Logger.warn('Archive file does not exist, cannot update summary');
+        return;
+      }
+
+      let content = await readFile(archivePath, 'utf8');
+
+      // Update Last Updated timestamp
+      const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+      content = content.replace(/- \*\*Last Updated\*\*: .*/, `- **Last Updated**: ${now}`);
+
+      // Update Daily Statistics (this already works)
+      await this.updateStatisticsInFile(archivePath);
+
+      // Write updated content
+      await writeFile(archivePath, content, 'utf8');
+
+      Logger.info('Updated archive summary', {
+        status,
+        stopReason,
+        timestamp: now,
+        stats: this.dailyStats,
+      });
+    } catch (error) {
+      Logger.error('Failed to update run summary', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
