@@ -25,6 +25,7 @@ interface DailyStats {
 
 export class ArchiveService {
   private dailyCache = new Set<string>();
+  private recentEntries = new Map<string, number>(); // Track recent entries with timestamps
   private currentDate = '';
   private dailyCounter = 0;
   private dailyStats: DailyStats = {
@@ -34,6 +35,7 @@ export class ArchiveService {
     lowConfidence: 0,
     duplicates: 0,
   };
+  private readonly RECENT_WINDOW_MINUTES = 10; // Skip archiving if seen in last 10 minutes
 
   constructor() {
     this.resetDailyCache();
@@ -63,6 +65,25 @@ export class ArchiveService {
         Logger.debug(`Song already archived today: ${entry.song.artist} - ${entry.song.title}`);
         return;
       }
+
+      // Check if this song was archived recently (without timestamp)
+      const songKey = `${entry.song.artist}-${entry.song.title}${entry.song.album ? `-${entry.song.album}` : ''}`;
+      const lastSeen = this.recentEntries.get(songKey);
+      const now = Date.now();
+
+      if (lastSeen && now - lastSeen < this.RECENT_WINDOW_MINUTES * 60 * 1000) {
+        const minutesAgo = Math.round((now - lastSeen) / 60000);
+        Logger.debug(
+          `Song archived ${minutesAgo} minutes ago, skipping: ${entry.song.artist} - ${entry.song.title}`
+        );
+        return;
+      }
+
+      // Update recent entries tracker
+      this.recentEntries.set(songKey, now);
+
+      // Clean up old entries from recent cache (older than window)
+      this.cleanupRecentEntries();
 
       // Get archive file path
       const archivePath = this.getArchiveFilePath(songDate);
@@ -106,9 +127,9 @@ export class ArchiveService {
   }
 
   private createUniqueId(song: ScrapedSong, timestamp: dayjs.Dayjs): string {
-    // Use only date and hour for deduplication to avoid archiving the same song multiple times
-    // within the same hour (common when processing batches)
-    const timeKey = timestamp.format('YYYY-MM-DD-HH');
+    // Use date, hour, and minute for deduplication to prevent rapid consecutive duplicates
+    // This prevents the same song from being archived multiple times in quick succession
+    const timeKey = timestamp.format('YYYY-MM-DD-HH-mm');
     // Include album in the unique ID to differentiate versions of the same song
     const albumKey = song.album ? `-${song.album}` : '';
     return `${song.artist}-${song.title}${albumKey}-${timeKey}`;
@@ -332,10 +353,14 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
           const album = cells[albumIndex] !== '-' ? cells[albumIndex].replace(/\\/g, '') : '';
 
           if (time && time.match(/^\d{2}:\d{2}$/)) {
-            const hour = time.split(':')[0];
+            const [hour, minute] = time.split(':');
             const albumKey = album ? `-${album}` : '';
-            const uniqueId = `${artist}-${title}${albumKey}-${dateString}-${hour}`;
+            const uniqueId = `${artist}-${title}${albumKey}-${dateString}-${hour}-${minute}`;
             this.dailyCache.add(uniqueId);
+
+            // Also add to recent entries cache for better duplicate prevention
+            const songKey = `${artist}-${title}${albumKey}`;
+            this.recentEntries.set(songKey, Date.now());
 
             // Update statistics from status column
             const status = cells[statusIndex];
@@ -379,9 +404,23 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
 
   private resetDailyCache(): void {
     this.dailyCache.clear();
+    // Don't clear recentEntries - it should persist across daily cache resets
+    // to prevent rapid consecutive duplicates
+    this.cleanupRecentEntries(); // Just clean up old entries
     this.currentDate = dayjs().format('YYYY-MM-DD');
     this.dailyCounter = 0;
     this.dailyStats = { total: 0, found: 0, notFound: 0, lowConfidence: 0, duplicates: 0 };
+  }
+
+  private cleanupRecentEntries(): void {
+    const now = Date.now();
+    const cutoff = this.RECENT_WINDOW_MINUTES * 60 * 1000;
+
+    for (const [key, timestamp] of this.recentEntries.entries()) {
+      if (now - timestamp > cutoff) {
+        this.recentEntries.delete(key);
+      }
+    }
   }
 
   private async updateStatisticsInFile(filePath: string): Promise<void> {

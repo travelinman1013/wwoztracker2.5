@@ -1,0 +1,1 @@
+import { ArchiveService } from "./src/services/ArchiveService.js"; import dayjs from "dayjs"; const as = new ArchiveService(); const entry = { song: { artist: "Test Artist", title: "Test Song", album: "Test Album", scrapedAt: dayjs().toISOString() }, status: "found" as const, archivedAt: dayjs().toISOString() }; console.log("Testing archive with IDs..."); as.archiveSong(entry);
