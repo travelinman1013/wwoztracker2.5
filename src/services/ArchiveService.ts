@@ -130,9 +130,9 @@ export class ArchiveService {
       // Append new entry as table row
       const tableRow = this.formatAsTableRow(entry);
 
-      // Check if we need to add the table or just append a row
-      if (!fileContent.includes('| Time |')) {
-        // Table doesn't exist, add headers
+      // Check if we need to add the table headers
+      if (!this.hasTableInTracksSection(fileContent)) {
+        // No table in Tracks section, add headers
         fileContent += this.createTableHeaders();
       }
 
@@ -259,6 +259,27 @@ This archive contains all tracks scraped from WWOZ's playlist on ${dateStr}.
 | ID | Time | Artist | Title | Album | Status | Confidence | Spotify | Scraped |
 |----|------|--------|-------|-------|--------|------------|---------|---------|
 `;
+  }
+
+  private hasTableInTracksSection(content: string): boolean {
+    // Find the "## Tracks" section
+    const tracksIndex = content.indexOf('## Tracks');
+    if (tracksIndex === -1) {
+      return false;
+    }
+
+    // Get content from "## Tracks" section onwards
+    const tracksSection = content.substring(tracksIndex);
+
+    // Look for next section marker (##) to limit our search
+    const nextSectionMatch = tracksSection.substring(10).match(/^## /m); // Skip "## Tracks"
+    const sectionEnd = nextSectionMatch && nextSectionMatch.index !== undefined
+      ? tracksIndex + 10 + nextSectionMatch.index
+      : content.length;
+    const limitedTracksSection = content.substring(tracksIndex, sectionEnd);
+
+    // Check if this section already has a table header
+    return limitedTracksSection.includes('| ID |') || limitedTracksSection.includes('| Time |');
   }
 
   private formatAsTableRow(entry: ArchiveEntry): string {
